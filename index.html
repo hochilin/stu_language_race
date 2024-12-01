@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>計時與扣分系統</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.2/xlsx.full.min.js"></script>
+    <style>
+        table, th, td {
+            border: 1px solid black;
+            border-collapse: collapse;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        #small-window {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid #000;
+            background-color: #fff;
+            padding: 20px;
+            z-index: 1000;
+        }
+        #small-window button {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>上傳 Excel 檔案並顯示資料與計時功能</h2>
+
+    <!-- 計時區段設定 -->
+    <div>
+        <label>第一次提醒 (秒): <input type="number" id="first-reminder" value="10"></label>
+        <label>請下台 (秒): <input type="number" id="final-reminder" value="20"></label>
+        <label>扣分間隔 (秒): <input type="number" id="deduction-interval" value="5"></label>
+    </div>
+
+    <!-- 檔案選擇器 -->
+    <input type="file" id="file-input" />
+    <p>檔案名稱: <span id="file-name"></span></p>
+
+    <!-- 顯示資料的表格 -->
+    <table id="data-table">
+        <thead>
+            <tr>
+                <th>班級</th>
+                <th>姓名</th>
+                <th>上台時間</th>
+                <th>扣分次數</th>
+                <th>開始</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <!-- 小視窗 (初始隱藏) -->
+    <div id="small-window">
+        <h3>計時窗口</h3>
+        <p id="row-data"></p>
+        <p>計時: <span id="timer">0</span> 秒</p>
+        <p>扣分次數: <span id="score-deduction">0</span></p>
+        <button id="stop-btn">停止</button>
+    </div>
+
+    <!-- 下載按鈕 -->
+    <button id="download-btn">下載資料</button>
+
+    <!-- 音效 -->
+    <audio id="ring01" src="Ring01.mp3"></audio>
+    <audio id="ring02" src="Ring02.mp3"></audio>
+
+    <script>
+        let timerInterval; // 計時器的 interval ID
+        let startTime; // 記錄開始時間
+        let currentRow; // 當前處於計時的小視窗所對應的資料行
+        let deductions = 0; // 扣分次數
+        let isDeductionActive = false; // 是否啟動扣分模式
+        let uploadedFileName = ''; // 上傳的檔案名稱
+
+        // 當文件選擇後
+        document.getElementById('file-input').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                uploadedFileName = file.name.replace(/\.[^/.]+$/, ''); // 去除副檔名
+                document.getElementById('file-name').textContent = file.name;
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const data = e.target.result;
+                    const workbook = XLSX.read(data, { type: 'binary' });
+                    const sheetName = workbook.SheetNames[0];
+                    const sheet = workbook.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 1 });
+
+                    const tableBody = document.getElementById('data-table').getElementsByTagName('tbody')[0];
+                    tableBody.innerHTML = '';
+
+                    for (let i = 0; i < Math.min(30, rows.length); i++) {
+                        const row = rows[i];
+                        const newRow = tableBody.insertRow();
+                        const cell1 = newRow.insertCell(0);
+                        const cell2 = newRow.insertCell(1);
+                        const cell3 = newRow.insertCell(2); // 顯示計時結果
+                        const cell4 = newRow.insertCell(3); // 顯示扣分次數
+                        const cell5 = newRow.insertCell(4); // 操作欄位
+
+                        cell1.textContent = row[0] || ''; // 班級
+                        cell2.textContent = row[1] || ''; // 姓名
+                        cell3.textContent = ''; // 計時結果初始化為空
+                        cell4.textContent = '0'; // 扣分次數初始化為 0
+
+                        const startButton = document.createElement('button');
+                        startButton.textContent = '開始';
+                        startButton.onclick = function() {
+                            openSmallWindow(row, newRow);
+                        };
+                        cell5.appendChild(startButton);
+                    }
+                };
+                reader.readAsBinaryString(file);
+            }
+        });
+
+        // 開啟小視窗並開始計時
+        function openSmallWindow(rowData, tableRow) {
+            const smallWindow = document.getElementById('small-window');
+            const rowDataElement = document.getElementById('row-data');
+            rowDataElement.textContent = `班級: ${rowData[0]}, 姓名: ${rowData[1]}`;
+
+            let elapsedTime = 0;
+            deductions = 0;
+            isDeductionActive = false;
+
+            document.getElementById('timer').textContent = elapsedTime;
+            document.getElementById('score-deduction').textContent = deductions;
+
+            const T1 = parseInt(document.getElementById('first-reminder').value) || 0;
+            const T2 = parseInt(document.getElementById('final-reminder').value) || 0;
+            const N = parseInt(document.getElementById('deduction-interval').value) || 0;
+
+            startTime = Date.now();
+            timerInterval = setInterval(function () {
+                elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('timer').textContent = elapsedTime;
+
+                if (elapsedTime === T1) {
+                    document.getElementById('ring01').play();
+                }
+
+                if (elapsedTime === T2) {
+                    if (!isDeductionActive) {
+                        document.getElementById('ring02').play();
+                        deductions++; // 超過 T2 立即扣一次分
+                        document.getElementById('score-deduction').textContent = deductions;
+                        tableRow.cells[3].textContent = deductions;
+                        isDeductionActive = true; // 開始啟動扣分模式
+                    }
+                }
+
+                if (isDeductionActive && N > 0 && elapsedTime > T2 && (elapsedTime - T2) % N === 0) {
+                    deductions++;
+                    document.getElementById('score-deduction').textContent = deductions;
+                    tableRow.cells[3].textContent = deductions;
+                }
+            }, 1000);
+
+            smallWindow.style.display = 'block';
+
+            document.getElementById('stop-btn').onclick = function () {
+                stopTimer(tableRow);
+            };
+
+            currentRow = tableRow;
+        }
+
+        // 停止計時
+        function stopTimer(tableRow) {
+            clearInterval(timerInterval);
+            const elapsedTime = document.getElementById('timer').textContent;
+            tableRow.cells[2].textContent = `${elapsedTime} 秒`;
+            document.getElementById('small-window').style.display = 'none';
+        }
+
+        // 下載資料
+        document.getElementById('download-btn').addEventListener('click', function () {
+            const table = document.getElementById('data-table');
+            const rows = [];
+            for (const row of table.rows) {
+                const cells = Array.from(row.cells).map(cell => cell.textContent);
+                rows.push(cells);
+            }
+
+            const worksheet = XLSX.utils.aoa_to_sheet(rows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, '比賽結果');
+
+            const downloadName = `比賽結果_${uploadedFileName}.xlsx`;
+            XLSX.writeFile(workbook, downloadName);
+        });
+    </script>
+</body>
+</html>
