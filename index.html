@@ -35,7 +35,13 @@
 
     <!-- 計時區段設定 -->
     <div>
-        <label>第一次提醒 (秒): <input type="number" id="first-reminder" value="10"></label>
+        <label>第一次提醒啟用: 
+            <select id="enable-first-reminder">
+                <option value="no" selected>否</option>
+                <option value="yes">是</option>
+            </select>
+        </label>
+        <label>第一次提醒 (秒): <input type="number" id="first-reminder" value="0" disabled></label>
         <label>請下台 (秒): <input type="number" id="final-reminder" value="20"></label>
         <label>扣分間隔 (秒): <input type="number" id="deduction-interval" value="5"></label>
     </div>
@@ -126,6 +132,16 @@
             }
         });
 
+        // 啟用/禁用第一次提醒的設定
+        document.getElementById('enable-first-reminder').addEventListener('change', function(event) {
+            const firstReminderInput = document.getElementById('first-reminder');
+            if (event.target.value === 'yes') {
+                firstReminderInput.disabled = false;
+            } else {
+                firstReminderInput.disabled = true;
+            }
+        });
+
         // 開啟小視窗並開始計時
         function openSmallWindow(rowData, tableRow) {
             const smallWindow = document.getElementById('small-window');
@@ -142,13 +158,14 @@
             const T1 = parseInt(document.getElementById('first-reminder').value) || 0;
             const T2 = parseInt(document.getElementById('final-reminder').value) || 0;
             const N = parseInt(document.getElementById('deduction-interval').value) || 0;
+            const isFirstReminderEnabled = document.getElementById('first-reminder').disabled === false;
 
             startTime = Date.now();
             timerInterval = setInterval(function () {
                 elapsedTime = Math.floor((Date.now() - startTime) / 1000);
                 document.getElementById('timer').textContent = elapsedTime;
 
-                if (elapsedTime === T1) {
+                if (isFirstReminderEnabled && elapsedTime === T1) {
                     document.getElementById('ring01').play();
                 }
 
@@ -180,27 +197,17 @@
 
         // 停止計時
         function stopTimer(tableRow) {
-            clearInterval(timerInterval);
+            clearInterval(timerInterval); // 清除計時器
             const elapsedTime = document.getElementById('timer').textContent;
-            tableRow.cells[2].textContent = `${elapsedTime} 秒`;
-            document.getElementById('small-window').style.display = 'none';
+            tableRow.cells[2].textContent = `${elapsedTime} 秒`; // 更新表格中的時間
+            document.getElementById('small-window').style.display = 'none'; // 隱藏小視窗
         }
 
         // 下載資料
-        document.getElementById('download-btn').addEventListener('click', function () {
-            const table = document.getElementById('data-table');
-            const rows = [];
-            for (const row of table.rows) {
-                const cells = Array.from(row.cells).map(cell => cell.textContent);
-                rows.push(cells);
-            }
-
-            const worksheet = XLSX.utils.aoa_to_sheet(rows);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, '比賽結果');
-
-            const downloadName = `比賽結果_${uploadedFileName}.xlsx`;
-            XLSX.writeFile(workbook, downloadName);
+        document.getElementById('download-btn').addEventListener('click', function() {
+            const wb = XLSX.utils.table_to_book(document.getElementById('data-table'));
+            const fileName = uploadedFileName + '_比賽結果.xlsx';
+            XLSX.writeFile(wb, fileName);
         });
     </script>
 </body>
